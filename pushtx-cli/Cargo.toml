@@ -1,0 +1,22 @@
+[package]
+name = "pushtx-cli"
+version = "0.2.0"
+edition = "2021"
+authors = ["Alfred Hodler <alfred_hodler@protonmail.com>"]
+license = "MIT"
+repository = "https://github.com/alfred-hodler/pushtx"
+description = "Bitcoin Transaction Broadcast Tool"
+keywords = ["p2p", "peer-to-peer", "networking"]
+categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
+
+[[bin]]
+name = "pushtx"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.86"
+clap = { version = "4.5.4", features = ["derive"] }
+env_logger = "0.11.3"
+log = "0.4.20"
+pushtx = { version = "0.2.0", path = "../pushtx" }
+thiserror = "1.0.61"

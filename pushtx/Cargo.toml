@@ -1,0 +1,22 @@
+[package]
+name = "pushtx"
+version = "0.2.0"
+edition = "2021"
+authors = ["Alfred Hodler <alfred_hodler@protonmail.com>"]
+license = "MIT"
+repository = "https://github.com/alfred-hodler/pushtx"
+description = "Bitcoin Transaction Broadcast Library"
+keywords = ["p2p", "peer-to-peer", "networking"]
+categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
+
+[dependencies]
+bitcoin = "0.31.1"
+crossbeam-channel = "0.5.12"
+data-encoding = "2.5.0"
+dns-lookup = "2.0.4"
+fastrand = "2.0.2"
+hex = "0.4.3"
+log = "0.4.20"
+peerlink = { version = "0.8.0", path = "../../peerlink", features = ["socks"] }
+port_check = "0.2.1"
+sha3 = "0.10.8"
