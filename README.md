@@ -26,25 +26,7 @@ also works.
 
 Install with Cargo: `cargo install pushtx-cli`
 
-```bash
-$ pushtx -f ~/path_to_tx_file.hex
-
-* The following transactions will be broadcast:
-  - fc0b9ac3a5734cdcbb3e693094c54da2b2d315dc4fd36d8122782f78e3a59f4f
-  - ea9d588eeeaff1d691cfdabd5fd0a0f70777375191348de90047c5ea300f402b
-  - c30d8f90456f39175dbdd3c96779014f6e3fb6fd9d10eb518fc35c889c9e1912
-* Resolving peers from DNS...
-* Resolved 291 peers
-* Connecting to the P2P network (testnet)...
-  - using Tor proxy found at 127.0.0.1:9050
-* Successful broadcast to peer 57.128.16.147:18333
-* Successful broadcast to peer 2001:638:a000:4140::ffff:47:18333
-* Successful broadcast to peer 135.181.78.217:18333
-* Successful broadcast to peer 2600:3c02::f03c:93ff:fe4b:c543:18333
-* Successful broadcast to peer 2600:3c02::f03c:93ff:fe4b:c543:18333
-* Successful broadcast to peer 71.13.92.62:18333
-* Done! Broadcast to 6 peers with 0 rejections
-```
+![Demo](pushtx-cli/demo.gif)
 
 ### Library
 
