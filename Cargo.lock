@@ -392,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "pushtx"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "bitcoin",
  "crossbeam-channel",
@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "pushtx-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "clap",

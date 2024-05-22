@@ -16,7 +16,14 @@ pub fn client(socks_proxy: Option<SocketAddr>, network: crate::Network) -> Clien
     let (handle, join_handle) = match socks_proxy {
         Some(proxy) => {
             let (reactor, handle) = peerlink::Reactor::with_connector(
-                Default::default(),
+                peerlink::Config {
+                    stream_config: peerlink::StreamConfig {
+                        tx_buf_min_size: 4096,
+                        ..Default::default()
+                    },
+                    receive_buffer_size: 32 * 1024,
+                    ..Default::default()
+                },
                 peerlink::connector::Socks5Connector {
                     proxy,
                     // random proxy credentials to get an isolated Tor circuit

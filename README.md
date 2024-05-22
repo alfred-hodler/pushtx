@@ -1,6 +1,7 @@
 [![Documentation](https://img.shields.io/docsrs/pushtx)](https://docs.rs/pushtx/latest/pushtx/)
 [![Crates.io](https://img.shields.io/crates/v/pushtx.svg)](https://crates.io/crates/pushtx)
 [![License](https://img.shields.io/crates/l/pushtx.svg)](https://github.com/alfred-hodler/pushtx/blob/master/LICENSE)
+[![Test Status](https://github.com/alfred-hodler/pushtx/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/alfred-hodler/pushtx/actions)
 
 ## Privacy-focused Bitcoin Transaction Broadcaster
 
