@@ -17,6 +17,6 @@ dns-lookup = "2.0.4"
 fastrand = "2.0.2"
 hex = "0.4.3"
 log = "0.4.20"
-peerlink = { version = "0.8.0", path = "../../peerlink", features = ["socks"] }
+peerlink = { version = "0.8.0", features = ["socks"] }
 port_check = "0.2.1"
 sha3 = "0.10.8"
