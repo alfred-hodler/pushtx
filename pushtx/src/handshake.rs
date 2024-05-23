@@ -10,6 +10,8 @@ pub enum Update {
     Verack,
     /// The peer sent a `SendAddrV2` message (BIP-155).
     SendAddrV2,
+    /// The peer sent a `WtxidRelay` message (BIP-0339).
+    WtxidRelay,
     /// The peer sent another message.
     Other,
 }
@@ -20,6 +22,7 @@ impl From<&NetworkMessage> for Update {
             NetworkMessage::Version(v) => Self::Version(v.clone()),
             NetworkMessage::Verack => Self::Verack,
             NetworkMessage::SendAddrV2 => Self::SendAddrV2,
+            NetworkMessage::WtxidRelay => Self::WtxidRelay,
             _ => Self::Other,
         }
     }
@@ -38,6 +41,8 @@ pub enum Event<'a> {
         version: &'a VersionMessage,
         /// Whether the peer prefers AddrV2 messages.
         wants_addr_v2: bool,
+        /// Wtxid relay
+        wtxid_relay: bool,
     },
 }
 
@@ -50,6 +55,8 @@ pub struct Handshake {
     their_verack: bool,
     /// Whether the peer prefers AddrV2 messages.
     wants_addr_v2: bool,
+    /// Wtxid relay
+    wtxid_relay: bool,
 }
 
 impl Handshake {
@@ -73,6 +80,7 @@ impl Handshake {
                     their_version: Some(_),
                     their_verack: false,
                     wants_addr_v2: wants_addr_v2 @ false,
+                    ..
                 },
                 Update::SendAddrV2,
             ) => {
@@ -82,9 +90,23 @@ impl Handshake {
 
             (
                 Self {
+                    their_version: Some(_),
+                    their_verack: false,
+                    wtxid_relay: wtxid_relay @ false,
+                    ..
+                },
+                Update::WtxidRelay,
+            ) => {
+                *wtxid_relay = true;
+                Event::Wait
+            }
+
+            (
+                Self {
                     their_version: Some(v),
                     their_verack: their_verack @ false,
                     wants_addr_v2,
+                    wtxid_relay,
                 },
                 Update::Verack,
             ) => {
@@ -92,6 +114,7 @@ impl Handshake {
                 Event::Done {
                     version: v,
                     wants_addr_v2: *wants_addr_v2,
+                    wtxid_relay: *wtxid_relay,
                 }
             }
 
