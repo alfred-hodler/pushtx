@@ -366,6 +366,8 @@ checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 [[package]]
 name = "peerlink"
 version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cec5e068ddc6eaedd4d068f3191f24289ec4228cf3179ec93575cb55e2c532d"
 dependencies = [
  "crossbeam-channel",
  "log",
@@ -392,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "pushtx"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "bitcoin",
  "crossbeam-channel",
@@ -408,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "pushtx-cli"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "clap",

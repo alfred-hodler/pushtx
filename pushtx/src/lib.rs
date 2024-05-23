@@ -217,12 +217,3 @@ pub fn broadcast(tx: Vec<Transaction>, opts: Opts) -> crossbeam_channel::Receive
     broadcaster.run();
     event_rx
 }
-
-/// Returns the number of seconds elapsed since the POSIX EPOCH.
-fn posix_time() -> u64 {
-    use std::time;
-    time::SystemTime::now()
-        .duration_since(time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
