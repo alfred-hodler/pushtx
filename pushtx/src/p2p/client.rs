@@ -13,17 +13,19 @@ use crate::net;
 use super::protocol;
 
 pub fn client(socks_proxy: Option<SocketAddr>, network: crate::Network) -> Client {
+    let config = peerlink::Config {
+        stream_config: peerlink::StreamConfig {
+            tx_buf_min_size: 4096,
+            ..Default::default()
+        },
+        receive_buffer_size: 32 * 1024,
+        ..Default::default()
+    };
+
     let (handle, join_handle) = match socks_proxy {
         Some(proxy) => {
             let (reactor, handle) = peerlink::Reactor::with_connector(
-                peerlink::Config {
-                    stream_config: peerlink::StreamConfig {
-                        tx_buf_min_size: 4096,
-                        ..Default::default()
-                    },
-                    receive_buffer_size: 32 * 1024,
-                    ..Default::default()
-                },
+                config,
                 peerlink::connector::Socks5Connector {
                     proxy,
                     // random proxy credentials to get an isolated Tor circuit
@@ -37,7 +39,7 @@ pub fn client(socks_proxy: Option<SocketAddr>, network: crate::Network) -> Clien
             (handle, reactor.run())
         }
         None => {
-            let (reactor, handle) = peerlink::Reactor::new(Default::default()).unwrap();
+            let (reactor, handle) = peerlink::Reactor::new(config).unwrap();
             (handle, reactor.run())
         }
     };
