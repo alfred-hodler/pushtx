@@ -16,7 +16,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.86"
 clap = { version = "4.5.4", features = ["derive"] }
-env_logger = "0.11.3"
+env_logger = { version = "0.11.3", default-features = false }
 log = "0.4.20"
 pushtx = { version = "0.2.4", path = "../pushtx" }
 thiserror = "1.0.61"
