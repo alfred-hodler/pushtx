@@ -12,7 +12,11 @@ use crate::net;
 
 use super::protocol;
 
-pub fn client(socks_proxy: Option<SocketAddr>, network: crate::Network) -> Client {
+pub fn client(
+    socks_proxy: Option<SocketAddr>,
+    network: crate::Network,
+    ua: Option<(String, u64, u64)>,
+) -> Client {
     let config = peerlink::Config {
         stream_config: peerlink::StreamConfig {
             tx_buf_min_size: 4096,
@@ -44,6 +48,8 @@ pub fn client(socks_proxy: Option<SocketAddr>, network: crate::Network) -> Clien
         }
     };
 
+    let (user_agent, timestamp, start_height) = ua.unwrap_or(("/pynode:0.0.1/".to_string(), 0, 0));
+
     Client {
         peerlink: handle,
         commands: Default::default(),
@@ -52,7 +58,7 @@ pub fn client(socks_proxy: Option<SocketAddr>, network: crate::Network) -> Clien
         our_version: VersionMessage {
             version: 70016,
             services: bitcoin::p2p::ServiceFlags::NONE,
-            timestamp: 0,
+            timestamp: timestamp as i64,
             receiver: bitcoin::p2p::Address {
                 services: bitcoin::p2p::ServiceFlags::NONE,
                 address: [0; 8],
@@ -64,8 +70,8 @@ pub fn client(socks_proxy: Option<SocketAddr>, network: crate::Network) -> Clien
                 port: 0,
             },
             nonce: fastrand::u64(..),
-            user_agent: "/pynode:0.0.1/".to_string(),
-            start_height: 0,
+            user_agent,
+            start_height: start_height as i32,
             relay: false,
         },
     }

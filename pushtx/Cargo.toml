@@ -1,6 +1,6 @@
 [package]
 name = "pushtx"
-version = "0.2.4"
+version = "0.3.0"
 edition = "2021"
 authors = ["Alfred Hodler <alfred_hodler@protonmail.com>"]
 license = "MIT"

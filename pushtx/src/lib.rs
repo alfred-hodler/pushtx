@@ -22,14 +22,19 @@
 //! let receiver = pushtx::broadcast(vec![tx], pushtx::Opts::default());
 //!
 //! // start reading info events until `Done` is received
-//! let how_many = loop {
-//!     match receiver.recv().unwrap() {    
-//!         pushtx::Info::Done { broadcasts, .. } => break broadcasts,
+//! loop {
+//!     match receiver.recv().unwrap() {
+//!         pushtx::Info::Done(Ok(report)) => {
+//!             println!("we successfully broadcast to {} peers", report.broadcasts);
+//!             break;
+//!         }
+//!         pushtx::Info::Done(Err(err)) => {
+//!             println!("we failed to broadcast to any peers, reason = {err}");
+//!             break;
+//!         }
 //!         _ => {}
 //!     }
-//! };
-//!
-//! println!("we successfully broadcast to {how_many} peers");
+//! }
 //!```
 
 mod broadcast;
@@ -38,7 +43,7 @@ mod net;
 mod p2p;
 mod seeds;
 
-use std::{net::SocketAddr, str::FromStr};
+use std::{net::SocketAddr, num::NonZeroUsize, str::FromStr};
 
 use bitcoin::consensus::Decodable;
 
@@ -104,7 +109,7 @@ impl std::fmt::Display for ParseTxError {
 
 /// Determines how to use Tor. The default is `BestEffort`.
 #[derive(Debug, Default, Clone)]
-pub enum UseTor {
+pub enum TorMode {
     /// Detects whether Tor is running locally at the usual port and attempts to use it. If no Tor
     /// is detected, the connection to the p2p network is established through clearnet.
     #[default]
@@ -112,7 +117,7 @@ pub enum UseTor {
     /// Do not use Tor even if it is available and running.
     No,
     /// Exclusively use Tor. If it is not available, do not use clearnet.
-    Exclusively,
+    Must,
 }
 
 /// Defines how the initial pool of peers that we broadcast to is found.
@@ -155,7 +160,7 @@ pub struct Opts {
     /// Which Bitcoin network to connect to.
     pub network: Network,
     /// Whether to broadcast through Tor if a local instance of it is found running.
-    pub use_tor: UseTor,
+    pub use_tor: TorMode,
     /// Which strategy to use to find the pool to draw peers from.
     pub find_peer_strategy: FindPeerStrategy,
     /// The maximum allowed duration for broadcasting regardless of the result. Terminates afterward.
@@ -172,6 +177,9 @@ pub struct Opts {
     pub dry_run: bool,
     /// How many peers to connect to.
     pub target_peers: u8,
+    /// Custom user agent, POSIX time (secs) and block height to send during peer handshakes.
+    /// Exercise caution modifying this.
+    pub ua: Option<(String, u64, u64)>,
 }
 
 impl Default for Opts {
@@ -184,6 +192,7 @@ impl Default for Opts {
             send_unsolicited: false,
             dry_run: false,
             target_peers: 10,
+            ua: None,
         }
     }
 }
@@ -200,12 +209,32 @@ pub enum Info {
     /// A tx broadcast to a particular peer was completed.
     Broadcast { peer: String },
     /// The broadcast process is done.
-    Done {
-        /// How many peers we managed to broadcast to.
-        broadcasts: usize,
-        /// How many rejects we got back.
-        rejects: usize,
-    },
+    Done(Result<Report, Error>),
+}
+
+/// An informational report on a successful broadcast process.
+#[derive(Debug, Clone)]
+pub struct Report {
+    /// How many peers we managed to broadcast to.
+    pub broadcasts: NonZeroUsize,
+    /// How many rejects we got back.
+    pub rejects: usize,
+}
+
+/// Possible error variants while broadcasting.
+#[derive(Debug, Clone)]
+pub enum Error {
+    TorNotFound,
+    Timeout,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::TorNotFound => write!(f, "Tor was required but a Tor proxy was not found"),
+            Error::Timeout => write!(f, "Time out"),
+        }
+    }
 }
 
 /// Connects to the p2p network and broadcasts a series of transactions. This runs fully in the

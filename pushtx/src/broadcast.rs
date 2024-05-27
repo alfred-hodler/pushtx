@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::handshake::{self, Handshake};
 use crate::p2p::{self, Outbox, Receiver, Sender};
-use crate::{net, seeds, FindPeerStrategy, Info, Opts, Transaction};
+use crate::{net, seeds, Error, FindPeerStrategy, Info, Opts, Report, Transaction};
 use bitcoin::p2p::message::NetworkMessage;
 use bitcoin::p2p::message_blockdata::Inventory;
 use crossbeam_channel::RecvTimeoutError;
@@ -31,9 +31,9 @@ impl Runner {
     pub fn run(self) {
         std::thread::spawn(move || {
             let (must_use_tor, proxy) = match self.opts.use_tor {
-                crate::UseTor::No => (false, None),
-                crate::UseTor::BestEffort => (false, detect_tor_proxy()),
-                crate::UseTor::Exclusively => (true, detect_tor_proxy()),
+                crate::TorMode::No => (false, None),
+                crate::TorMode::BestEffort => (false, detect_tor_proxy()),
+                crate::TorMode::Must => (true, detect_tor_proxy()),
             };
 
             if self.opts.dry_run {
@@ -43,10 +43,11 @@ impl Runner {
             log::info!("Tor proxy status: {:?}", proxy);
             if proxy.is_none() && must_use_tor {
                 log::error!("Tor usage required but local proxy not found");
+                let _ = self.info_tx.send(Info::Done(Err(Error::TorNotFound)));
                 return;
             }
 
-            let client = p2p::client(proxy, self.opts.network);
+            let client = p2p::client(proxy, self.opts.network, self.opts.ua);
             let mut state = HashMap::new();
 
             let _ = self.info_tx.send(Info::ResolvingPeers);
@@ -202,10 +203,14 @@ impl Runner {
 
             std::thread::sleep(std::time::Duration::from_millis(500));
             client.shutdown().join().unwrap().unwrap();
-            let _ = self.info_tx.send(Info::Done {
-                broadcasts,
-                rejects,
-            });
+            let done = match broadcasts.try_into() {
+                Ok(broadcasts) => Ok(Report {
+                    broadcasts,
+                    rejects,
+                }),
+                Err(_) => Err(Error::Timeout),
+            };
+            let _ = self.info_tx.send(Info::Done(done));
         });
     }
 }

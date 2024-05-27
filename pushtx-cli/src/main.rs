@@ -15,15 +15,14 @@ use clap::Parser;
 /// fresh Tor circuit. Running the Tor browser in the background
 /// is usually sufficient for this to work.
 ///
-/// Logging can be enabled by running the program with the
-/// following environment variable: RUST_LOG=debug.
-/// Available log levels are: trace, debug, info, warn, error.
+/// More verbose (debug) output can be enabled by specifying the
+/// -v or --verbose switch up to three times.
 #[derive(Parser)]
-#[command(version, about, long_about, verbatim_doc_comment)]
+#[command(version, about, long_about, verbatim_doc_comment, name = "pushtx")]
 struct Cli {
-    /// Connect through clearnet even if Tor is available.
-    #[arg(short, long)]
-    no_tor: bool,
+    /// Tor mode. Default is `try`.
+    #[arg(short = 'm', long)]
+    tor_mode: Option<TorMode>,
 
     /// Dry-run mode. Performs the whole process except the sending part.
     #[arg(short, long)]
@@ -33,16 +32,32 @@ struct Cli {
     #[arg(short, long)]
     testnet: bool,
 
-    /// Zero or one paths to a file containing line-delimited hex encoded or binary transactions
+    /// Zero or one paths to a file containing line-delimited hex encoded transactions
     ///
     /// If not present, stdin is used instead (hex only, one tx per line).
     #[arg(short = 'f', long = "file", value_name = "FILE")]
     txs: Option<PathBuf>,
+
+    /// Print debug info (use multiple times for more verbosity; max 3)
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
 }
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
     let cli = Cli::parse();
+
+    let log_level = match cli.verbose {
+        0 => None,
+        1 => Some(log::Level::Info),
+        2 => Some(log::Level::Debug),
+        3.. => Some(log::Level::Trace),
+    };
+
+    if let Some(level) = log_level {
+        env_logger::Builder::default()
+            .filter_level(level.to_level_filter())
+            .init();
+    }
 
     let txs: Result<Vec<_>, Error> = match cli.txs {
         Some(path) => {
@@ -55,16 +70,19 @@ fn main() -> anyhow::Result<()> {
                 .map(|line| pushtx::Transaction::from_hex(line).map_err(Into::into))
                 .collect()
         }
-        None => std::io::stdin()
-            .lines()
-            .filter_map(|line| match line {
-                Ok(line) if !line.trim().is_empty() => {
-                    Some(pushtx::Transaction::from_hex(line).map_err(Into::into))
-                }
-                Ok(_) => None,
-                Err(err) => Some(Err(Error::Io(err))),
-            })
-            .collect(),
+        None => {
+            eprintln!("Go ahead and paste some hex-encoded transactions (one per line) ... ");
+            std::io::stdin()
+                .lines()
+                .filter_map(|line| match line {
+                    Ok(line) if !line.trim().is_empty() => {
+                        Some(pushtx::Transaction::from_hex(line).map_err(Into::into))
+                    }
+                    Ok(_) => None,
+                    Err(err) => Some(Err(Error::Io(err))),
+                })
+                .collect()
+        }
     };
 
     if cli.dry_run {
@@ -86,16 +104,10 @@ fn main() -> anyhow::Result<()> {
         Err(err) => Err(err),
     }?;
 
-    let use_tor = if cli.no_tor {
-        pushtx::UseTor::No
-    } else {
-        pushtx::UseTor::BestEffort
-    };
-
     let receiver = broadcast(
         txs,
         Opts {
-            use_tor,
+            use_tor: cli.tor_mode.unwrap_or_default().into(),
             network: if cli.testnet {
                 Network::Testnet
             } else {
@@ -120,16 +132,15 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             Ok(Info::Broadcast { peer }) => println!("* Successful broadcast to peer {}", peer),
-            Ok(Info::Done {
+            Ok(Info::Done(Ok(Report {
                 broadcasts,
                 rejects,
-            }) => {
-                if broadcasts > 0 {
-                    println!("* Done! Broadcast to {broadcasts} peers with {rejects} rejections");
-                    break Ok(());
-                } else {
-                    break Err(Error::FailedToBroadcast.into());
-                }
+            }))) => {
+                println!("* Done! Broadcast to {broadcasts} peers with {rejects} rejections");
+                break Ok(());
+            }
+            Ok(Info::Done(Err(error))) => {
+                break Err(Error::FailedToBroadcast(error).into());
             }
             Err(_) => panic!("worker thread disconnected"),
         }
@@ -138,12 +149,34 @@ fn main() -> anyhow::Result<()> {
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
-    #[error("IO error while parsing transaction(s): {0}")]
+    #[error("IO error while reading transaction(s): {0}")]
     Io(#[from] std::io::Error),
-    #[error("{0}")]
+    #[error("Error while parsing transaction(s): {0}")]
     Parse(#[from] pushtx::ParseTxError),
     #[error("Empty transaction set, did you pass at least one transaction?")]
     EmptyTxSet,
-    #[error("Failed to broadcast to any peers")]
-    FailedToBroadcast,
+    #[error("Failed to broadcast: {0}")]
+    FailedToBroadcast(pushtx::Error),
+}
+
+/// Determines how to use Tor.
+#[derive(Debug, Default, Clone, clap::ValueEnum)]
+pub enum TorMode {
+    /// Use Tor if available. If not available, connect through clearnet.
+    #[default]
+    Try,
+    /// Do not use Tor even if available and running.
+    No,
+    /// Exclusively use Tor. If not available, do not broadcast.
+    Must,
+}
+
+impl From<TorMode> for pushtx::TorMode {
+    fn from(value: TorMode) -> Self {
+        match value {
+            TorMode::Try => Self::BestEffort,
+            TorMode::No => Self::No,
+            TorMode::Must => Self::Must,
+        }
+    }
 }

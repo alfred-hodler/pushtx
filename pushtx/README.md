@@ -21,21 +21,26 @@ also works.
 ### Usage
 
 ```rust
- // our hex-encoded transaction that we want to parse and broadcast
+ // this is our hex-encoded transaction that we want to parse and broadcast
  let tx = "6afcc7949dd500000....".parse().unwrap();
 
  // we start the broadcast process and acquire a receiver to the info events
  let receiver = pushtx::broadcast(vec![tx], pushtx::Opts::default());
 
  // start reading info events until `Done` is received
- let how_many = loop {
-     match receiver.recv().unwrap() { 
-         pushtx::Info::Done { broadcasts, .. } => break broadcasts,
+ loop {
+     match receiver.recv().unwrap() {
+         pushtx::Info::Done(Ok(report)) => {
+             println!("we successfully broadcast to {} peers", report.broadcasts);
+             break;
+         }
+         pushtx::Info::Done(Err(err)) => {
+             println!("we failed to broadcast to any peers, reason = {err}");
+             break;
+         }
          _ => {}
      }
- };
-
- println!("we successfully broadcast to {how_many} peers");
+ }
 ```
 
 An executable is also available (`pushtx-cli`).

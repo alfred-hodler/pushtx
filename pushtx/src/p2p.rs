@@ -115,6 +115,7 @@ pub enum DisconnectReason {
 pub fn client(
     socks_proxy: Option<SocketAddr>,
     network: crate::Network,
+    ua: Option<(String, u64, u64)>,
 ) -> impl Sender + Receiver<peerlink::PeerId> + Outbox<peerlink::PeerId> {
-    client::client(socks_proxy, network)
+    client::client(socks_proxy, network, ua)
 }
