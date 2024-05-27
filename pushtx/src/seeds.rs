@@ -4,6 +4,7 @@ use crate::{net::Service, Network};
 
 const FIXED_MAINNET: &str = include_str!("../seeds/mainnet.txt");
 const FIXED_TESTNET: &str = include_str!("../seeds/testnet.txt");
+const FIXED_SIGNET: &str = include_str!("../seeds/signet.txt");
 
 const DNS_MAINNET: &[&str] = &[
     "dnsseed.bluematt.me.",
@@ -23,13 +24,15 @@ const DNS_TESTNET: &[&str] = &[
     "seed.testnet.bitcoin.sprovoost.nl",
 ];
 
+const DNS_SIGNET: &[&str] = &["seed.signet.bitcoin.sprovoost.nl"];
+
 /// Returns nodes returned by DNS seeds.
 pub fn dns(network: Network) -> Vec<Service> {
     let (seeds, port): (&[_], _) = match network {
         Network::Mainnet => (DNS_MAINNET, 8333),
         Network::Testnet => (DNS_TESTNET, 18333),
         Network::Regtest => (&[], 18444),
-        Network::Signet => (&[], 38333),
+        Network::Signet => (DNS_SIGNET, 38333),
     };
 
     seeds
@@ -59,7 +62,7 @@ pub fn fixed(network: Network) -> impl Iterator<Item = Service> {
         Network::Mainnet => parse_fixed(FIXED_MAINNET),
         Network::Testnet => parse_fixed(FIXED_TESTNET),
         Network::Regtest => parse_fixed(""),
-        Network::Signet => parse_fixed(""),
+        Network::Signet => parse_fixed(FIXED_SIGNET),
     }
 }
 
