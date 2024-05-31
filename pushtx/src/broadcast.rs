@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time;
 use std::time::Duration;
@@ -68,11 +68,13 @@ impl Runner {
                 outbox.connect(*addr);
             }
             outbox.send().unwrap();
+
             let tx_map: HashMap<_, _> = self.tx.into_iter().map(|tx| (tx.0.txid(), tx.0)).collect();
+            let mut acks = HashSet::new();
+            let mut selected: Option<BroadcastPeer<_>> = None;
 
             let start = time::Instant::now();
-            let mut broadcasts = 0;
-            let mut rejects = 0;
+            let mut rejects = HashMap::new();
 
             loop {
                 let mut need_replacements = 0;
@@ -81,7 +83,7 @@ impl Runner {
                 match p2p.recv_timeout(Duration::from_secs(1)).map(Into::into) {
                     Ok(p2p::Event::ConnectedTo { target, result }) => match result {
                         Ok(id) => {
-                            log::info!("connected to peer @ {target}");
+                            log::info!("connected: peer @ {target}");
                             state.insert(id, Peer::Handshaking(target, Handshake::default()));
                             outbox.version(id);
                         }
@@ -96,60 +98,44 @@ impl Runner {
                             handshake::Event::Wait => {}
                             handshake::Event::SendVerack => outbox.verack(peer),
                             handshake::Event::Violation => {
-                                log::warn!("peer {} violated handshake", s);
+                                log::warn!("handshake violated: peer @ {}", s);
                                 state.remove(&peer);
                                 need_replacements += 1;
                             }
                             handshake::Event::Done { .. } => {
-                                log::info!("handshake with {} done", s);
                                 let service = *s;
-                                let used;
-                                if self.opts.send_unsolicited {
-                                    used = true;
-                                    for tx in tx_map.values() {
-                                        log::info!("sending tx to {}", service);
-                                        if !self.opts.dry_run {
-                                            outbox.tx(peer, tx.to_owned());
-                                        }
-                                        broadcasts += 1;
-                                        let _ = self.info_tx.send(Info::Broadcast {
-                                            peer: service.to_string(),
-                                        });
-                                    }
-                                } else {
-                                    used = false;
-                                    outbox.tx_inv(peer, tx_map.keys().cloned());
-                                }
-                                state.insert(peer, Peer::Ready { service, used });
+                                log::info!("handshake complete: peer @ {}", s);
+                                state.insert(peer, Peer::Ready { service });
                             }
                         },
-                        Some(Peer::Ready { service, used }) => match message.payload() {
-                            NetworkMessage::GetData(inv) => {
+                        Some(Peer::Ready { service }) => match message.payload() {
+                            NetworkMessage::Inv(inv) => {
                                 for inv in inv {
                                     if let Inventory::Transaction(wanted_txid) = inv {
-                                        if let Some(tx) = tx_map.get(wanted_txid) {
-                                            if !self.opts.dry_run {
-                                                outbox.tx(peer, tx.to_owned());
-                                            }
-                                            *used = true;
-                                            broadcasts += 1;
-                                            let _ = self.info_tx.send(Info::Broadcast {
-                                                peer: service.to_string(),
-                                            });
+                                        if tx_map.contains_key(wanted_txid)
+                                            && selected.as_ref().map(|s| s.id) != Some(peer)
+                                        {
+                                            log::info!(
+                                                "txid seen: peer @ {}: {}",
+                                                service,
+                                                wanted_txid
+                                            );
+                                            acks.insert(*wanted_txid);
                                         }
                                     }
                                 }
                             }
                             NetworkMessage::Reject(reject) => {
                                 log::warn!(
-                                    "got a reject from {}: type={}, code={:?}, reason={}",
+                                    "reject: peer @ {}: type={}, code={:?}, reason={}",
                                     service,
                                     reject.message,
                                     reject.ccode,
                                     reject.reason
                                 );
                                 if reject.message == "tx" {
-                                    rejects += 1;
+                                    let txid = crate::Txid(reject.hash.into());
+                                    rejects.insert(txid, reject.reason.to_string());
                                 }
                             }
                             _ => {}
@@ -157,19 +143,13 @@ impl Runner {
                         None => panic!("phantom peer {}", peer),
                     },
 
-                    Ok(p2p::Event::Disconnected { peer, .. }) => match state.get_mut(&peer) {
-                        Some(
-                            Peer::Ready {
-                                service,
-                                used: false,
+                    Ok(p2p::Event::Disconnected { peer, reason }) => match state.get_mut(&peer) {
+                        Some(Peer::Ready { service } | Peer::Handshaking(service, _)) => {
+                            log::info!("disconnected: peer @ {}, reason: {:?}", service, reason);
+                            if selected.as_ref().map(|s| s.id) == Some(peer) {
+                                selected = None;
                             }
-                            | Peer::Handshaking(service, _),
-                        ) => {
-                            log::info!("peer @ {service} left without letting us broadcast");
                             need_replacements += 1;
-                            state.remove(&peer);
-                        }
-                        Some(_) => {
                             state.remove(&peer);
                         }
                         None => panic!("phantom peer {}", peer),
@@ -180,16 +160,46 @@ impl Runner {
                     _ => {}
                 }
 
-                // The strategy is as follows: we exponentially care less about each subsequent
-                // broadcast, so we add 2^broadcasts to the elapsed time.
-                let now = time::Instant::now();
-                let elapsed = (now - start) + Duration::from_secs(1 << broadcasts);
-                if elapsed >= self.opts.max_time {
-                    log::info!(
-                        "spent {} secs with {} broadcasts, exit",
-                        (now - start).as_secs(),
-                        broadcasts
-                    );
+                match &selected {
+                    Some(selected) if selected.is_stale() => {
+                        log::warn!("rotating broadcast peer");
+                        outbox.disconnect(selected.id);
+                    }
+                    _ => {}
+                }
+
+                if selected.is_none() {
+                    let new_selected = state
+                        .iter()
+                        .filter_map(|(id, p)| match p {
+                            Peer::Handshaking(_, _) => None,
+                            Peer::Ready { service } => Some((*service, *id)),
+                        })
+                        .next();
+
+                    if let Some((service, id)) = new_selected {
+                        log::info!("selected broadcast peer @ {service}");
+                        selected = Some(BroadcastPeer::new(id));
+                        for tx in tx_map.values() {
+                            log::info!("broadcasting to {}", service);
+                            if !self.opts.dry_run {
+                                outbox.tx(id, tx.to_owned());
+                            }
+                        }
+                        let _ = self.info_tx.send(Info::Broadcast {
+                            peer: service.to_string(),
+                        });
+                    }
+                }
+
+                let elapsed = time::Instant::now() - start;
+
+                if self.opts.dry_run && elapsed.as_secs() > 3 {
+                    acks.extend(tx_map.keys());
+                }
+
+                if acks.len() == tx_map.len() || elapsed >= self.opts.max_time {
+                    log::info!("broadcast stop");
                     break;
                 }
 
@@ -201,16 +211,12 @@ impl Runner {
                 client.send().unwrap();
             }
 
-            std::thread::sleep(std::time::Duration::from_millis(500));
             client.shutdown().join().unwrap().unwrap();
-            let done = match broadcasts.try_into() {
-                Ok(broadcasts) => Ok(Report {
-                    broadcasts,
-                    rejects,
-                }),
-                Err(_) => Err(Error::Timeout),
-            };
-            let _ = self.info_tx.send(Info::Done(done));
+            let report = Ok(Report {
+                success: acks.into_iter().map(crate::Txid).collect(),
+                rejects,
+            });
+            let _ = self.info_tx.send(Info::Done(report));
         });
     }
 }
@@ -220,18 +226,43 @@ enum Peer {
     /// Currently handshaking.
     Handshaking(net::Service, Handshake),
     /// Handshake established, ready for interaction.
-    Ready { service: net::Service, used: bool },
+    Ready { service: net::Service },
+}
+
+/// A single peer that we have selected for our transaction broadcast.
+struct BroadcastPeer<P: p2p::Peerlike> {
+    /// The id of the peer.
+    id: P,
+    /// The time the broadcast took place.
+    when: std::time::Instant,
+}
+
+impl<P: p2p::Peerlike> BroadcastPeer<P> {
+    fn new(id: P) -> Self {
+        Self {
+            id,
+            when: std::time::Instant::now(),
+        }
+    }
+    /// Whether the peer is stale and should be rotated.
+    fn is_stale(&self) -> bool {
+        std::time::Instant::now() - self.when > Duration::from_secs(10)
+    }
 }
 
 /// Tries to detect a local Tor proxy on the usual ports.
 fn detect_tor_proxy() -> Option<SocketAddr> {
+    fn is_port_reachable(addr: SocketAddr) -> bool {
+        std::net::TcpStream::connect(addr).is_ok()
+    }
+
     // Tor daemon has a SOCKS proxy on port 9050
-    if port_check::is_port_reachable((Ipv4Addr::LOCALHOST, 9050)) {
+    if is_port_reachable((Ipv4Addr::LOCALHOST, 9050).into()) {
         return Some((Ipv4Addr::LOCALHOST, 9050).into());
     }
 
     // Tor browser has a SOCKS proxy on port 9150
-    if port_check::is_port_reachable((Ipv4Addr::LOCALHOST, 9150)) {
+    if is_port_reachable((Ipv4Addr::LOCALHOST, 9150).into()) {
         return Some((Ipv4Addr::LOCALHOST, 9150).into());
     }
 

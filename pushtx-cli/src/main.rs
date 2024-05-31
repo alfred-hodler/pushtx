@@ -1,6 +1,7 @@
 use pushtx::*;
 
 use core::panic;
+use std::collections::HashSet;
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -17,20 +18,22 @@ use clap::Parser;
 ///
 /// More verbose (debug) output can be enabled by specifying the
 /// -v or --verbose switch up to three times.
+///
+/// Copyright (c) 2024 Alfred Hodler <alfred_hodler@protonmail.com>
 #[derive(Parser)]
 #[command(version, about, long_about, verbatim_doc_comment, name = "pushtx")]
 struct Cli {
-    /// Tor mode. Default is `try`.
-    #[arg(short = 'm', long)]
-    tor_mode: Option<TorMode>,
+    /// Tor mode.
+    #[arg(short = 'm', long, default_value_t = TorMode::Try)]
+    tor_mode: TorMode,
 
     /// Dry-run mode. Performs the whole process except the sending part.
     #[arg(short, long)]
     dry_run: bool,
 
-    /// Connect to testnet instead of mainnet.
-    #[arg(short, long)]
-    testnet: bool,
+    /// The network to use.
+    #[arg(short, long, default_value_t = Network::Mainnet)]
+    network: Network,
 
     /// Zero or one paths to a file containing line-delimited hex encoded transactions
     ///
@@ -104,16 +107,13 @@ fn main() -> anyhow::Result<()> {
         Err(err) => Err(err),
     }?;
 
+    let txids: HashSet<_> = txs.iter().map(|tx| tx.txid()).collect();
+
     let receiver = broadcast(
         txs,
         Opts {
-            use_tor: cli.tor_mode.unwrap_or_default().into(),
-            network: if cli.testnet {
-                Network::Testnet
-            } else {
-                Network::Mainnet
-            },
-            send_unsolicited: true,
+            use_tor: cli.tor_mode.into(),
+            network: cli.network.into(),
             dry_run: cli.dry_run,
             ..Default::default()
         },
@@ -124,23 +124,31 @@ fn main() -> anyhow::Result<()> {
             Ok(Info::ResolvingPeers) => println!("* Resolving peers from DNS..."),
             Ok(Info::ResolvedPeers(n)) => println!("* Resolved {n} peers"),
             Ok(Info::ConnectingToNetwork { tor_status }) => {
-                let network = if cli.testnet { "testnet" } else { "mainnet" };
-                println!("* Connecting to the P2P network ({network})...");
+                println!("* Connecting to the P2P network ({})...", cli.network);
                 match tor_status {
                     Some(proxy) => println!("  - using Tor proxy found at {proxy}"),
                     None => println!("  - not using Tor"),
                 }
             }
-            Ok(Info::Broadcast { peer }) => println!("* Successful broadcast to peer {}", peer),
-            Ok(Info::Done(Ok(Report {
-                broadcasts,
-                rejects,
-            }))) => {
-                println!("* Done! Broadcast to {broadcasts} peers with {rejects} rejections");
-                break Ok(());
+            Ok(Info::Broadcast { peer }) => println!("* Broadcast to peer {}", peer),
+            Ok(Info::Done(Ok(Report { success, rejects }))) => {
+                let difference: Vec<_> = txids.difference(&success).collect();
+                if difference.is_empty() {
+                    println!("* Done! Broadcast successful");
+                    break Ok(());
+                } else {
+                    println!("* Failed to broadcast one or more transactions");
+                    for missing in difference {
+                        println!("  - failed: {missing}");
+                    }
+                    for (r_txid, r_reason) in rejects {
+                        println!("  - reject: {r_txid}: {r_reason}");
+                    }
+                    break Err(Error::Partial.into());
+                }
             }
             Ok(Info::Done(Err(error))) => {
-                break Err(Error::FailedToBroadcast(error).into());
+                break Err(Error::Broadcast(error).into());
             }
             Err(_) => panic!("worker thread disconnected"),
         }
@@ -156,14 +164,15 @@ enum Error {
     #[error("Empty transaction set, did you pass at least one transaction?")]
     EmptyTxSet,
     #[error("Failed to broadcast: {0}")]
-    FailedToBroadcast(pushtx::Error),
+    Broadcast(pushtx::Error),
+    #[error("Failed to broadcast one or more transactions")]
+    Partial,
 }
 
 /// Determines how to use Tor.
-#[derive(Debug, Default, Clone, clap::ValueEnum)]
+#[derive(Debug, Clone, clap::ValueEnum)]
 pub enum TorMode {
     /// Use Tor if available. If not available, connect through clearnet.
-    #[default]
     Try,
     /// Do not use Tor even if available and running.
     No,
@@ -178,5 +187,45 @@ impl From<TorMode> for pushtx::TorMode {
             TorMode::No => Self::No,
             TorMode::Must => Self::Must,
         }
+    }
+}
+
+impl std::fmt::Display for TorMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            TorMode::Try => "try",
+            TorMode::No => "no",
+            TorMode::Must => "must",
+        };
+        write!(f, "{}", name)
+    }
+}
+
+/// The Bitcoin network to connect to.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum Network {
+    Mainnet,
+    Testnet,
+    Signet,
+}
+
+impl From<Network> for pushtx::Network {
+    fn from(value: Network) -> Self {
+        match value {
+            Network::Mainnet => Self::Mainnet,
+            Network::Testnet => Self::Testnet,
+            Network::Signet => Self::Signet,
+        }
+    }
+}
+
+impl std::fmt::Display for Network {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Network::Mainnet => "mainnet",
+            Network::Testnet => "testnet",
+            Network::Signet => "signet",
+        };
+        write!(f, "{}", name)
     }
 }

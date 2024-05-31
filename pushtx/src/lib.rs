@@ -25,7 +25,7 @@
 //! loop {
 //!     match receiver.recv().unwrap() {
 //!         pushtx::Info::Done(Ok(report)) => {
-//!             println!("we successfully broadcast to {} peers", report.broadcasts);
+//!             println!("{} transactions broadcast successfully", report.success.len());
 //!             break;
 //!         }
 //!         pushtx::Info::Done(Err(err)) => {
@@ -43,12 +43,16 @@ mod net;
 mod p2p;
 mod seeds;
 
-use std::{net::SocketAddr, num::NonZeroUsize, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    str::FromStr,
+};
 
 use bitcoin::consensus::Decodable;
 
 /// A Bitcoin transaction to be broadcast into the network.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Transaction(bitcoin::Transaction);
 
 impl Transaction {
@@ -63,8 +67,8 @@ impl Transaction {
     }
 
     /// Returns the txid of this transaction.
-    pub fn txid(&self) -> impl std::fmt::Display {
-        self.0.txid()
+    pub fn txid(&self) -> Txid {
+        Txid(self.0.txid())
     }
 }
 
@@ -84,6 +88,15 @@ impl TryFrom<&[u8]> for Transaction {
         let tx = bitcoin::Transaction::consensus_decode(&mut value)
             .map_err(|_| ParseTxError::InvalidTxBytes)?;
         Ok(Self(tx))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Txid(bitcoin::Txid);
+
+impl std::fmt::Display for Txid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -139,8 +152,8 @@ pub enum Network {
     #[default]
     Mainnet,
     Testnet,
-    Regtest,
     Signet,
+    Regtest,
 }
 
 impl From<Network> for bitcoin::Network {
@@ -165,15 +178,9 @@ pub struct Opts {
     pub find_peer_strategy: FindPeerStrategy,
     /// The maximum allowed duration for broadcasting regardless of the result. Terminates afterward.
     pub max_time: std::time::Duration,
-    /// Normally, no transaction should be sent to a peer without first sending an `Inv` message
-    /// advertising the transaction and then waiting for the peer to respond with a `GetData`
-    /// message indicating that it does not indeed have the transaction. However, if we are certain
-    /// that our transactions have not been seen by the network, we can short-circuit this process
-    /// and simply send them out without the `Inv`-`GetData` exchange.
-    pub send_unsolicited: bool,
     /// Whether to simulate the broadcast. This means that every part of the process will be
     /// executed as normal, including connecting to actual peers, but the final part where the tx
-    /// is sent out is omitted (we pretend that the transaction really did go out.)
+    /// is sent out is omitted (we pretend that the transaction really did go out and was seen.)
     pub dry_run: bool,
     /// How many peers to connect to.
     pub target_peers: u8,
@@ -189,7 +196,6 @@ impl Default for Opts {
             use_tor: Default::default(),
             find_peer_strategy: Default::default(),
             max_time: std::time::Duration::from_secs(40),
-            send_unsolicited: false,
             dry_run: false,
             target_peers: 10,
             ua: None,
@@ -212,27 +218,25 @@ pub enum Info {
     Done(Result<Report, Error>),
 }
 
-/// An informational report on a successful broadcast process.
+/// An informational report on a broadcast outcome.
 #[derive(Debug, Clone)]
 pub struct Report {
-    /// How many peers we managed to broadcast to.
-    pub broadcasts: NonZeroUsize,
-    /// How many rejects we got back.
-    pub rejects: usize,
+    /// The list of transactions that were sent out and then seen on the network.
+    pub success: HashSet<Txid>,
+    /// The list of transactions that were rejected, along with the reason.
+    pub rejects: HashMap<Txid, String>,
 }
 
 /// Possible error variants while broadcasting.
 #[derive(Debug, Clone)]
 pub enum Error {
     TorNotFound,
-    Timeout,
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::TorNotFound => write!(f, "Tor was required but a Tor proxy was not found"),
-            Error::Timeout => write!(f, "Time out"),
         }
     }
 }

@@ -15,8 +15,9 @@ also works.
 1. Resolve peers through DNS seeds.
 2. Detect if Tor is present.
 3. Connect to 10 random peers, through Tor if possible.
-4. Broadcast the transaction.
-5. Disconnect.
+4. Broadcast the transaction to a single peer.
+5. Wait until the transaction is seen on the network.
+6. Disconnect.
 
 ### Usage
 
@@ -31,7 +32,7 @@ also works.
  loop {
      match receiver.recv().unwrap() {
          pushtx::Info::Done(Ok(report)) => {
-             println!("we successfully broadcast to {} peers", report.broadcasts);
+             println!("{} transactions broadcast successfully", report.success.len());
              break;
          }
          pushtx::Info::Done(Err(err)) => {

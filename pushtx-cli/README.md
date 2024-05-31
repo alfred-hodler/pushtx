@@ -15,8 +15,9 @@ also works.
 1. Resolve peers through DNS seeds.
 2. Detect if Tor is present.
 3. Connect to 10 random peers, through Tor if possible.
-4. Broadcast the transaction.
-5. Disconnect.
+4. Broadcast the transaction to a single peer.
+5. Wait until the transaction is seen on the network.
+6. Disconnect.
 
 ### Usage
 

@@ -30,9 +30,6 @@ pub trait Outbox<P: Peerlike> {
     /// Queues a `VerAck` message for sending.
     fn verack(&self, peer: P);
 
-    /// Queues a `Inv` message with a set of txids for sending.
-    fn tx_inv(&self, peer: P, txids: impl Iterator<Item = bitcoin::Txid>);
-
     /// Queues a `Tx` message for sending.
     fn tx(&self, peer: P, tx: bitcoin::Transaction);
 }

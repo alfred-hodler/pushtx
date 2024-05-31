@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::thread::JoinHandle;
 
 use bitcoin::p2p::message::{NetworkMessage, RawNetworkMessage};
-use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::message_network::VersionMessage;
 use bitcoin::Network;
 use peerlink::PeerId;
@@ -72,7 +71,7 @@ pub fn client(
             nonce: fastrand::u64(..),
             user_agent,
             start_height: start_height as i32,
-            relay: false,
+            relay: true,
         },
     }
 }
@@ -102,13 +101,6 @@ impl super::Outbox<PeerId> for Client {
 
     fn verack(&self, peer: PeerId) {
         self.queue(self.message(peer, NetworkMessage::Verack));
-    }
-
-    fn tx_inv(&self, peer: PeerId, txids: impl Iterator<Item = bitcoin::Txid>) {
-        self.queue(self.message(
-            peer,
-            NetworkMessage::Inv(txids.map(Inventory::Transaction).collect()),
-        ))
     }
 
     fn tx(&self, peer: PeerId, tx: bitcoin::Transaction) {
