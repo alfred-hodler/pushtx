@@ -35,8 +35,8 @@ pub trait Outbox<P: Peerlike> {
 }
 
 /// Describes a type capable of receiving p2p events.
-pub trait Receiver<P: Peerlike> {
-    fn receiver(&self) -> &crossbeam_channel::Receiver<impl Into<Event<P>>>;
+pub trait Receiver<P: Peerlike, T: Into<Event<P>>> {
+    fn receiver(&self) -> &crossbeam_channel::Receiver<T>;
 }
 
 /// Describes a type that sends queued commands outbound.
@@ -113,6 +113,8 @@ pub fn client(
     socks_proxy: Option<SocketAddr>,
     network: crate::Network,
     ua: Option<(String, u64, u64)>,
-) -> impl Sender + Receiver<peerlink::PeerId> + Outbox<peerlink::PeerId> {
+) -> impl Sender
+       + Receiver<peerlink::PeerId, peerlink::Event<protocol::Message, net::Service>>
+       + Outbox<peerlink::PeerId> {
     client::client(socks_proxy, network, ua)
 }

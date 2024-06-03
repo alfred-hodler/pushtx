@@ -122,8 +122,10 @@ impl super::Sender for Client {
     }
 }
 
-impl super::Receiver<PeerId> for Client {
-    fn receiver(&self) -> &crossbeam_channel::Receiver<impl Into<super::Event<PeerId>>> {
+impl super::Receiver<PeerId, peerlink::Event<protocol::Message, net::Service>> for Client {
+    fn receiver(
+        &self,
+    ) -> &crossbeam_channel::Receiver<peerlink::Event<protocol::Message, net::Service>> {
         self.peerlink.receiver()
     }
 }
