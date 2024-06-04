@@ -2,7 +2,7 @@ use pushtx::*;
 
 use core::panic;
 use std::collections::HashSet;
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -74,8 +74,11 @@ fn main() -> anyhow::Result<()> {
                 .collect()
         }
         None => {
-            eprintln!("Go ahead and paste some hex-encoded transactions (one per line) ... ");
-            std::io::stdin()
+            let stdin = std::io::stdin();
+            if stdin.is_terminal() {
+                eprintln!("Enter some hex-encoded transactions (one per line, Ctrl + {EOF_CHR} when done) ... ");
+            }
+            stdin
                 .lines()
                 .filter_map(|line| match line {
                     Ok(line) if !line.trim().is_empty() => {
@@ -229,3 +232,9 @@ impl std::fmt::Display for Network {
         write!(f, "{}", name)
     }
 }
+
+const EOF_CHR: char = if cfg!(target_family = "windows") {
+    'Z'
+} else {
+    'D'
+};
